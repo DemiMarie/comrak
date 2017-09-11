@@ -16,11 +16,53 @@ fn is_match(re: &Regex, line: &str) -> bool {
     re.is_match(line)
 }
 
-pub fn atx_heading_start(line: &str) -> Option<usize> {
-    lazy_static! {
-        static ref RE: Regex = Regex::new(r"\A(?:#{1,6}([ \t]+|[\r\n]))").unwrap();
+#[cfg(test)]
+mod test {
+    pub use super::*;
+    #[test]
+    fn test_atx_heading_cr() {
+        assert_eq!(atx_heading_start("####\ralpha ####"), Some(5));
     }
-    search(&RE, line)
+    #[test]
+    fn test_atx_heading_sp() {
+        assert_eq!(atx_heading_start("#### alpha ####"), Some(5));
+        assert_eq!(atx_heading_start("### alpha ###"), Some(4));
+        assert_eq!(atx_heading_start("## alpha ##"), Some(3));
+        assert_eq!(atx_heading_start("# alpha #"), Some(2));
+        assert_eq!(atx_heading_start("#   alpha #"), Some(4));
+    }
+    #[test]
+    fn test_atx_heading_nosp() {
+        assert_eq!(atx_heading_start("#alpha #"), None);
+    }
+    #[test]
+    fn test_no_atx_heading() {
+        assert_eq!(atx_heading_start("   alpha #"), None);
+    }
+}
+pub fn atx_heading_start(line: &str) -> Option<usize> {
+    let mut iter = line.as_bytes().iter();
+    let mut count = 0;
+    let mut ch = b'\0'; // anything that isn’t '\r', '\n', ' ', or '\t' works
+    while let Some(&x) = iter.next() {
+        match x {
+            b'#' => { count += 1; if count > 6 { return None } }
+            x => { if count == 0 { return None }; ch = x; break }
+        }
+    }
+    match ch {
+        b'\r'|b'\n' => { Some(count + 1) }
+        b' '|b'\t' => {
+            for i in iter {
+                match i {
+                    &b' '|&b'\t' => { count += 1 }
+                    _ => break
+                }
+            }
+            Some(count + 1)
+        }
+        _ => None
+    }
 }
 
 pub fn html_block_end_1(line: &str) -> bool {
@@ -77,10 +119,7 @@ lazy_static! {
 pub fn html_block_start(line: &str) -> Option<usize> {
     lazy_static! {
         static ref RE1: Regex = Regex::new(r"\A(?:<(script|pre|style)([ \t\v\f\r\n]|>))").unwrap();
-        static ref STR2: &'static str = "<!--";
-        static ref STR3: &'static str = "<?";
         static ref RE4: Regex = Regex::new(r"\A(?:<![A-Z])").unwrap();
-        static ref STR5: &'static str = "<![CDATA[";
         static ref RE6: Regex = Regex::new(
             &format!(r"\A(?:</?({})([ \t\v\f\r\n]|/?>))", *BLOCK_TAG_NAMES_PIPED)).unwrap();
     }
@@ -91,13 +130,13 @@ pub fn html_block_start(line: &str) -> Option<usize> {
 
     if is_match(&RE1, line) {
         Some(1)
-    } else if line.starts_with(*STR2) {
+    } else if line.starts_with("<!--") {
         Some(2)
-    } else if line.starts_with(*STR3) {
+    } else if line.starts_with("<?") {
         Some(3)
     } else if is_match(&RE4, line) {
         Some(4)
-    } else if line.starts_with(*STR5) {
+    } else if line.starts_with("<![CDATA[") {
         Some(5)
     } else if is_match(&RE6, line) {
         Some(6)
